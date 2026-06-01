@@ -1,0 +1,89 @@
+class ActionListClass [
+
+	constructor (actions, acl:GridACLType) end
+
+	function findAction (verb:ActionVerb):ActionDescSchema end
+
+	function parseVerb (desc):ActionVerb end
+	function parseAction (desc):ActionImpl end
+	function parseParam (desc):String end
+
+	var actions:array of ActionDescSchema
+]
+
+enum ActionVerb [
+	edit 		as "Edit",
+	open 		as "Open",
+	openWith 	as "Open With...",
+	run			as "Run"
+]
+
+enum ActionImpl [
+	nothing,
+
+	openFiles,
+	openIDE,
+	run,
+	runProgram,
+]
+
+schema ActionDescSchema [
+	var verb:ActionVerb
+	var exec:ActionImpl
+	var param:String
+]
+
+function ActionListClass.constructor (actions, acl:GridACLType) do
+	this.actions = Array(array of ActionDescSchema, actions.map(fn(desc)->
+		if acl.can(desc.access) || desc.access == "run" -> [
+			verb=this.parseVerb(desc),
+			exec=this.parseAction(desc),
+			param=this.parseParam(desc)
+		]
+	))
+end
+
+function ActionListClass.findAction (verb:ActionVerb):ActionDescSchema do
+	for desc in this.actions do
+		if desc.verb == verb do
+			return desc
+		end
+	end
+
+	//	If we want to open, see if other verbs are available.
+
+	if verb == ActionVerb.open do
+		for desc in this.actions do
+			if desc.verb == ActionVerb.run do
+				return desc
+			end
+		end
+	end
+
+	return ActionDescSchema([
+		verb=verb,
+		exec=ActionImpl.nothing
+	])
+end
+
+function ActionListClass.parseVerb (desc):ActionVerb ->
+	if desc.id == "edit" 			-> ActionVerb.edit
+	else if desc.id == "open"		-> ActionVerb.open
+	else if desc.id == "openWith"	-> ActionVerb.openWith
+	else if desc.id == "run"		-> ActionVerb.run
+	else
+		-> error("Unknown action ID: " + desc.id)
+
+function ActionListClass.parseAction (desc):ActionImpl do
+	if desc.action == "openFiles"					-> ActionImpl.openFiles
+	else if desc.action == "openIDE"				-> ActionImpl.openIDE
+	else if desc.action == "run"					-> ActionImpl.run
+	else if desc.action.startsWith("runProgram")	-> ActionImpl.runProgram
+	else
+		-> error("Unknown action impl: " + desc.action)
+end
+
+function ActionListClass.parseParam (desc):String do
+	if desc.action.startsWith("runProgram")			-> desc.action.split("=")[1]
+	else -> ""
+end

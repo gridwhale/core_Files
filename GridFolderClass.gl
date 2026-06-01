@@ -1,0 +1,116 @@
+
+class GridFolderClass [
+
+	constructor (gridID:String) end
+
+	def Files:table of GridFolderSchema -> this.fileData
+	def FileList:array of ListboxSchema end
+	def ID:String -> this.folderDS.datasetID
+	def Name:String -> this.folderDS.name
+	def Purpose:String -> this.folderPurpose
+
+	function addFile (fileID:String) end
+	function canCreateNewFiles () end
+	function getOpenAction (fileID:String):ActionDescSchema end
+	function remove (fileID:String) end
+
+	function realize () end
+
+	function folderDS.onchange () end
+
+	var onchange
+
+	var fileTypesDS
+	var folderDS
+	var folderPurpose
+	var fileData:table of GridFolderSchema
+
+	-----------------------------------------------------------------------------
+
+	schema ListboxSchema [
+		key id:String
+		var name:String
+		var icon:String
+		var desc:String
+	]
+]
+
+function GridFolderClass.constructor (gridID:String) do
+	this.fileTypesDS = Data.open("/grid/fileTypes")
+
+	this.folderDS = Data.open(gridID)
+	if this.folderDS.type != "folder" do
+		error("Not a folder dataset: " + gridID)
+	end
+
+	this.folderPurpose = this.folderDS.fileProperties.purpose.type || "data"
+
+	this.realize()
+end
+
+def GridFolderClass.FileList:array of ListboxSchema do
+	return this.fileData
+		.sorted("name")
+		.map(fn(entry:GridFolderSchema)->[
+			id=entry.id,
+			name=entry.name,
+			icon=entry.icon,
+			desc=entry.type + " • " + entry.id.sliced(6)
+		])
+end
+
+function GridFolderClass.addFile (fileID:String) do
+	this.folderDS.append(fileID)
+end
+
+function GridFolderClass.canCreateNewFiles () do
+
+	def NO_CREATE = ["limbo", "programDataDir", "programDataUserDir" ]
+
+	//	If we don't have rights to modify the folder, then we can't
+	//	create new files.
+
+	if !this.folderDS.can("modify") do
+		return false
+	end
+
+	//	We cannot create new files in Limbo or in any program data folder
+
+	if NO_CREATE.find(this.Purpose) do
+		return false
+	end
+
+	//	Otherwise, OK.
+
+	return true
+end
+
+function GridFolderClass.getOpenAction (fileID:String):ActionDescSchema do
+
+	var fileInfo = this.fileData[fileID]
+	var actions = ActionListClass(fileInfo.actions, fileInfo.acl)
+
+	//	The actions field is an array of structures. Each structure describes one
+	//	possible operation for the file.
+	//
+	//	We look for id="open", which gives us the default open behavior.
+
+	var open = actions.findAction(ActionVerb.open)
+	return open
+end
+
+function GridFolderClass.remove (fileID:String) do
+	this.folderDS.removeAt(fileID)
+end
+
+function GridFolderClass.realize () do
+	this.fileData = static_cast(table of GridFolderSchema, this.folderDS.getValue())
+end
+
+function GridFolderClass.folderDS.onchange () do
+	this.realize()
+
+	if this.onchange do
+		this.onchange()
+	end
+end

@@ -1,0 +1,8 @@
+
+function GridIDtoFileID (gridID:String):String do
+	if gridID.startsWith("/file/") do
+		return gridID.sliced(6)
+	else do
+		return gridID
+	end
+end

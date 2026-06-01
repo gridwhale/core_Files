@@ -1,0 +1,156 @@
+class StartUIClass [
+
+	constructor (folderUI:FolderUIClass) end
+	def control -> this.listCtrl
+
+	function realize () end
+
+	function cmdStart (fileID:String) end
+
+	function startDS.onchange () -> this.realize()
+	function procDS.onchange () -> this.realize()
+
+	function listCtrl.onclick (id, x, y) end
+	function listCtrl.ondrop (data, sourceDesc, dest) end
+
+	var folderUI
+
+	var listCtrl
+
+	var startDS
+	var procDS
+
+	var programs:table of EntryRecord
+
+	schema EntryRecord [
+		key id:String					|	fileID
+		var name:String					|	file name
+		var icon:String					|	icon GridID
+		
+		var procs:table of GridProcessListSchema
+	]
+]
+
+function StartUIClass.constructor (folderUI:FolderUIClass) do
+
+	this.folderUI = folderUI
+	this.startDS = Data.open("~/start")
+	this.procDS = Data.open("~/proc")
+	
+	this.listCtrl = UI.create("listbox", [
+		style="palette",
+		selectionMode="none",
+		align="center top",
+		itemSize="84px",
+		padding="4px",
+		itemTextStyle="layered",
+		height="min:200px; max:320px",
+
+		background="Neutral_50"
+
+		dropTarget=[
+			dataTypes="*",
+			uploadLocation=this.startDS.datasetID
+		]
+	])
+
+	this.realize()
+end
+
+function StartUIClass.realize () do
+
+	//	Start with all items in the Start folder
+
+	this.programs = Table(EntryRecord, this.startDS.getValue())
+
+	//	Add all running programs
+
+	var procs = this.procDS.getValue().indexed("programID")
+	for id, procList in procs do
+		this.programs.setAt(id, [
+			name=procList[0].programName,
+			icon=procList[0].programIcon,
+
+			procs=procList
+		])
+	end
+
+	this.listCtrl.data = this.programs
+end
+
+function StartUIClass.cmdStart (fileID:String) do
+
+	var fileInfo = this.startDS.getValue()[fileID]
+	var actions = ActionListClass(fileInfo.actions, fileInfo.acl)
+	var run = actions.findAction(ActionVerb.run)
+
+	//	If no run action, try to open
+
+	if run.exec == ActionImpl.nothing do
+		run = actions.findAction(ActionVerb.open)
+		if run.exec == ActionImpl.nothing do
+			UI.dialog("No default open action for this file.")
+			return false
+		end
+	end
+
+	this.folderUI.execAction(fileID, run)
+end
+
+function StartUIClass.listCtrl.onclick (id, x, y) do
+
+	var entry = this.programs[id]
+
+	//	If we don't have a list of running processes, then open
+
+	if !entry.procs do
+		this.cmdStart(entry.id)
+	
+	//	If we only have a single running process, navigate to it.
+
+	else if entry.procs.length == 1 do
+		var procDS = Data.open(entry.procs[0].id)
+		UI.navigate(procDS.getOpenURL([ relative=true ]))
+
+	//	Otherwise, bring up a menu of running processes
+
+	else do
+
+		function getLabel (proc) do
+			if proc.fileName do
+				return proc.fileName
+			else if proc.args.session do
+				return proc.programName + " • " + proc.args.session
+			else do
+				return proc.programName
+			end
+		end
+
+		var menuCtrl = UI.create("menu", [
+			content=entry.procs.map(fn(proc)->[
+				label=getLabel(proc),
+				icon=proc.programIcon,
+
+				fn onaction () do
+					var procDS = Data.open(proc.id)
+					UI.navigate(procDS.getOpenURL([ relative=true ]))
+				end
+			])
+		])
+
+		this.listCtrl.showMenu(menuCtrl, x, y)
+	end
+end
+
+function StartUIClass.listCtrl.ondrop (data, sourceDesc, dest) do
+	if sourceDesc.locationID == this.startDS.datasetID do
+		//	Nothing to do.
+	else if data["application/x-griditemlist"] do
+		//	Add items that we dragged to the Start folder.
+		var items = data["application/x-griditemlist"]
+		for itemID in items do
+			this.startDS.append(itemID)
+		end
+	else do
+	end
+end

@@ -1,0 +1,544 @@
+
+function FolderUIClass.cmdAddFilesByID () do
+	schema AddFileSchema [
+		var id:String as "File ID"
+	]
+
+	var result:AddFileSchema? = UI.dialog(AddFileSchema, null, [ title="Add File to Folder" ])
+	if !result || !result.id do
+		return false
+	end
+
+	var fileID = result.id
+	if fileID.startsWith("/") do
+	else if fileID.startsWith("file/") do
+		fileID = "/" + fileID
+	else do
+		fileID = "/file/" + fileID
+	end
+
+	var props = Data.getProperties(fileID, [ noExceptions=true ])
+	if props.type == "error" do
+		UI.dialog("ERROR: " + props.data)
+		return false
+	end
+
+	this.folder.addFile(props.id)
+end
+
+function FolderUIClass.cmdAddToShelf (selection:array of String) do
+	for fileID in selection do
+		this.shelfDS.append(fileID)
+	end
+end
+
+function FolderUIClass.cmdCopyLink (selection:array of String) do
+	if selection.length == 1 do
+		var fileID = selection[0]
+		var fileInfo = this.folder.Files[fileID]
+
+		UI.dialog(fileID, null, [ title=fileInfo.name ])
+	else do
+		var IDs = selection.joined(Char(10))
+		UI.dialog(IDs, null, [ title=String(selection.length) + " Files" ])
+	end
+end
+
+function FolderUIClass.cmdCreateFolder () do
+	schema CreateFolderSchema [
+		var name:String as "Folder Name"
+	]
+
+	var result:CreateFolderSchema? = UI.dialog(CreateFolderSchema, [ name="New Folder" ], [ title="Create Folder" ])
+	if !result do
+		return false
+	end
+
+	Data.create(this.folder.ID, result.name.cleaned() || "New Folder", "folder")
+end
+
+function FolderUIClass.cmdCreateNotebook () do
+
+	schema CreateNotebookSchema [
+		var name:String as "Notebook Name"
+	]
+
+	var result:CreateNotebookSchema? = UI.dialog(CreateNotebookSchema, [ name="New Notebook" ], [ title="Create Notebook" ])
+	if !result do
+		return false
+	end
+
+	var notebookName = result.name.cleaned() || "New Notebook"
+
+	var notebookID:String = Code.call("/archive/programs/GridMan", "CreateFile", [ name=notebookName ])
+	if !notebookID do
+		return false
+	end
+	
+	//	Add the notebook to the current folder
+
+	this.folder.folderDS.append(notebookID)
+
+	//	Launch the notebook
+
+	this.cmdRunProgram("/archive/programs/GridMan", notebookID)
+end
+
+function FolderUIClass.cmdCreateProgram () do
+
+	enum EnvironmentType [
+		clang		as "C"
+		gridLang 	as "GridLang"
+	]
+
+	schema CreateProgramSchema [
+		var env:EnvironmentType as "Environment"
+		var name:String as "Program Name"
+	]
+
+	var result:CreateProgramSchema? = UI.dialog(CreateProgramSchema, [ name="New Program", env=Environment.gridLang ], [ title="Create Program" ])
+	if !result do
+		return false
+	end
+
+	var programName = result.name.cleaned() || "New Program"
+
+	//	Create based on the environment.
+
+	var programDS = 
+		if result.env == Environment.gridLang
+			-> this.cmdCreateGridLangProgram(programName)
+		else if result.env == Environment.clang
+			-> this.cmdCreateCProgram(programName)
+		else
+			-> error("Unknown environment")
+
+	//	Launch the IDE
+
+	this.cmdRunProgram("/archive/programs/IDE", String(programDS.datasetID))
+end
+
+function FolderUIClass.cmdCreateWebSite () do
+
+	schema CreateWebSiteSchema [
+		var name:String as "Web Site Title"
+	]
+
+	var result:CreateWebSiteSchema? = UI.dialog(CreateWebSiteSchema, [ name="New Web Site" ], [ title="Create Web Site" ])
+	if !result do
+		return false
+	end
+
+	var siteName = result.name.cleaned() || "New Web Site"
+
+	//	Start by creating the siteDef file. But we don't initialized it
+	//	yet.
+
+	var siteDS = Data.create(this.folder.ID, siteName, "data", [
+		fileType="application/x-gridSite"
+	])
+
+	//	Create index.html
+
+	var sourceDS = Data.create(siteDS.datasetID, "index.html", "text", [
+		fileType="text/html"
+	])
+
+	sourceDS.setValue(
+		"""
+		<!DOCTYPE html>
+		<html lang="en">
+		<head>
+			<meta charset="UTF-8">
+			<meta name="viewport" content="width=device-width, initial-scale=1.0">
+			<title>Minimal HTML</title>
+		</head>
+		<body>
+			<h1>Hello, World!</h1>
+		</body>
+		</html>
+		"""
+	)
+
+	//	Now that we have the source file, create the descriptor.
+
+	siteDS.setValue([
+		name=siteName,
+	])
+
+end
+
+function FolderUIClass.cmdCreateCProgram (name:String) do
+
+	//	Start by creating the programDef file. But we don't initialized it
+	//	yet.
+
+	var programDS = Data.create(this.folder.ID, name, "data", [
+		fileType="application/x-gridProgram"
+	])
+
+	//	Create a simple source file and set it as a child of the program.
+
+	var sourceDS = Data.create(programDS.datasetID, "main.c", "text", [
+		fileType="text/x-csrc"
+	])
+
+	sourceDS.setValue(
+		"""
+		#include <stdio.h>
+
+		int main(void) {
+			printf("Hello, world!\n");
+			return 42;
+		}
+		"""
+	)
+
+	//	Now that we have the source file, create the descriptor.
+
+	programDS.setValue([
+		environment="clang",
+		name=name,
+		uiType="consoleUI"
+
+		sources=[
+			[
+				filePath=sourceDS.datasetID,
+				name="main.c",
+				type="text/x-csrc"
+			]
+		]
+	])
+
+	return programDS
+end
+
+function FolderUIClass.cmdCreateGridLangProgram (name:String) do
+
+	var programDS = Data.create(this.folder.ID, name, "data", [
+		fileType="application/x-gridProgram"
+	])
+
+	//	Create a simple source file and set it as a child of the program.
+
+	var sourceDS = Data.create(programDS.datasetID, name, "text", [
+		fileType="text/x-gridLang"
+	])
+
+	sourceDS.setValue(
+		"""
+		//	GridWhale Program
+
+		print("Hello, World!")
+		"""
+	)
+
+	//	Now that we have the source file, create the descriptor.
+
+	programDS.setValue([
+		environment="gridLang",
+		name=name,
+		uiType="consoleUI"
+
+		sources=[
+			[
+				filePath=sourceDS.datasetID,
+				name=name,
+				type="text/x-gridLang"
+			]
+		]
+	])
+
+	return programDS
+end
+
+function FolderUIClass.cmdDebugDlg (fileID:String) do
+
+	var fileInfo = this.folder.Files[fileID]
+	print("fileInfo:")
+	print(fileInfo)
+	print("properties:")
+	print(Data.getProperties(fileInfo.id))
+
+	/*
+	var fileDS = Data.open(fileInfo.id)
+	print(fileDS.getFolders())
+	*/
+
+	/*
+	var folderList = Data.getProperties(fileInfo.id).folders
+	print(fileInfo.owner)
+	print(folderList)
+	*/
+
+end
+
+function FolderUIClass.cmdDelete (selection:array of String) do
+	if selection.length == 0 do
+		return false
+	end
+
+	var result = UI.dialog("Permanently delete {files}? This operation cannot be undone.".format([
+			files=if selection.length == 1 -> this.folder.Files[selection[0]].name
+				else -> String(selection.length, "#,### files")
+		]))
+	if !result do
+		return false
+	end
+
+	for fileID in selection do
+		var fileDesc = this.folder.Files[fileID]
+		if fileDesc do
+			if fileDesc.acl.can("admin") do
+				var result = Data.delete(fileID, [ noExceptions="true" ])
+			else do
+				this.folder.folderDS.removeAt(fileID)				
+			end
+		end
+	end
+
+	this.listCtrl.selection = this.listCtrl.selection.filter(fn(id)->!selection.find(id))
+end
+
+function FolderUIClass.cmdDeselectAll () do
+	this.listCtrl.selection = null
+end
+
+function FolderUIClass.cmdDetails (fileID:String) do
+
+	var imageCtrl = UI.create("image", [
+		width="260px",
+		height="260px",
+		align="top center",
+		placeholder="Click here to set icon."
+	])
+
+	function imageCtrl.onclick () do
+		var newIcon = UIImageSelectorDialog()
+		if newIcon do
+			imageCtrl.data = newIcon
+		end
+	end
+
+	var detailsCtrl = UI.create("text", [
+		format="markdown",
+	])
+
+	var formCtrl = UI.create("form", [
+		cols=2,
+		content=[
+			[	id="icon",		col=0,	control=imageCtrl	],
+			[	id="name",		col=1,	type=String,	label="Name"	],
+			[	id="details",	col=1,	control=detailsCtrl ],
+		]
+	])
+
+	//	Set current info
+
+	var props = Data.getProperties(fileID)
+	formCtrl.data = [
+		icon=props.icon,
+		name=props.name,
+		details=
+			"""
+			**Type**: {type}   
+			**Size**: {size:#,###}   
+			**Owner**: {owner}   
+			**Created By**: {createdBy}   
+			**Created On**: {createdOn:d mmm yyyy}   
+			**Modified By**: {modifiedBy}   
+			**Modified On**: {modifiedOn:d mmm yyyy}   
+			""".format(props)
+	]
+
+	//	Show dialog
+
+	var result = UI.dialog(formCtrl, [], [
+		label=props.name,
+		width="700px"
+	])
+
+	if result 
+			&& (result.name != props.name || result.icon != props.icon) do
+		Data.setProperties(fileID, [
+			name=result.name || "(Untitled)",
+			icon=result.icon
+		])
+	end
+end
+
+function FolderUIClass.cmdDownload (fileID:String) do
+end
+
+function FolderUIClass.cmdMoveToShelf (selection:array of String) do
+	for fileID in selection do
+		this.shelfDS.append(fileID)
+		this.folder.folderDS.removeAt(fileID)
+	end
+end
+
+function FolderUIClass.cmdOpen (fileID:String) do
+
+	var fileInfo = this.folder.Files[fileID]
+	var actions = ActionListClass(fileInfo.actions, fileInfo.acl)
+
+	//	The actions field is an array of structures. Each structure describes one
+	//	possible operation for the file.
+	//
+	//	We look for id="open", which gives us the default open behavior.
+
+	var open = actions.findAction(ActionVerb.open)
+	if open.exec == ActionImpl.nothing do
+		//	For image type files, we launch the Image Viewer
+
+		if fileInfo.type in ["image/jpeg", "image/png", "image/svg+xml"] do
+			this.cmdOpenImage(this.curFolderID, fileID)
+
+		//	Otherwise, no action
+
+		else do
+			UI.dialog("No default open action for this file.")
+			return false
+		end
+	end
+
+	this.execAction(fileID, open)
+
+end
+
+function FolderUIClass.cmdOpenFolder (fileID:String) do
+	this.curFolderID = fileID
+	this.realize()
+end
+
+function FolderUIClass.cmdOpenImage (folderID:String, imageID:String) do
+	var imageProgramID = Data.resolvePath("/archive/programs/Image Viewer")
+	var ID = gridIDtoFileID(imageProgramID)
+
+	UI.navigate("/program.hexm?id=" + ID + "&file=" + gridIDtoFileID(folderID) + "#" + imageID)
+end
+
+function FolderUIClass.cmdRemove (selection:array of String) do
+
+	if selection.length == 0 do
+		return false
+
+	else if selection.length == 1 do
+
+		var fileID = selection[0]
+
+		//	See if this is the only folder that we are in.
+
+		var folderList = Data.getProperties(fileID).folders
+		var moveToLimbo = folderList.length == 0 || (folderList.length == 1 && folderList[0].id == this.folder.ID)
+	
+		//	Message depends on whether we move to Limbo or not
+
+		var confirm = if moveToLimbo ->
+			"Remove {file} from {folder} and move to Limbo?"
+		else ->
+			"Remove {file} from {folder} folder?"
+
+		var dlgMessage = confirm.format([
+			file=this.folder.Files[fileID].name,
+			folder=this.folder.Name,
+		])
+		if !UI.dialog(dlgMessage, null, [ title="Are You Sure?" ]) do
+			return false
+		end
+
+		this.folder.folderDS.removeAt(fileID)
+
+		if moveToLimbo do
+			this.limboDS.append(fileID)
+		end
+
+		return true
+
+	else do
+
+		var dlgMessage = "Remove {count} files from {folder} folder?"
+			.format([
+				count=selection.length,
+				folder=this.folder.Name
+			])
+
+		if !UI.dialog(dlgMessage, null, [ title="Are You Sure?" ]) do
+			return false
+		end
+
+		for fileID in selection do
+
+			//	See if we move to Limbo or not
+
+			var folderList = Data.getProperties(fileID).folders
+			var moveToLimbo = folderList.length == 0 || (folderList.length == 1 && folderList[0].id == this.folder.ID)
+
+			this.folder.folderDS.removeAt(fileID)
+
+			if moveToLimbo do
+				this.limboDS.append(fileID)
+			end
+		end
+
+		return true
+	end
+end
+
+function FolderUIClass.cmdRemoveSelected (selection:array of String) do
+	if this.cmdRemove(selection) do
+		this.listCtrl.selection = null
+	end
+end
+
+function FolderUIClass.cmdRename (fileID:String) do
+	schema RenameSchema [
+		var name:String as "Name"
+	]
+
+	var properties = Data.getProperties(fileID)
+	var result:RenameSchema? = UI.dialog(RenameSchema, [ name=properties.name ], [ title="Rename" ])
+	if !result do
+		return false
+	end
+
+	Data.setProperties(fileID, [ name=result.name.cleaned() || "(Untitled)" ])
+end
+
+function FolderUIClass.cmdRun (fileID:String) do'
+
+	var fileInfo = this.folder.Files[fileID]
+	var actions = ActionListClass(fileInfo.actions, fileInfo.acl)
+	var run = actions.findAction(ActionVerb.run)
+	if run.exec == ActionImpl.nothing do
+		UI.dialog("No run action for this file.")
+		return false
+	end
+
+	this.execAction(fileID, run)
+
+end
+
+function FolderUIClass.cmdRunProgram (programID:String, paramID:String) do
+	var ID = gridIDtoFileID(programID)
+
+	if paramID do
+		UI.navigate("/program.hexm?id=" + ID + "&file=" + gridIDtoFileID(paramID))
+	else do
+		UI.navigate("/program.hexm?id=" + ID)
+	end
+end
+
+function FolderUIClass.cmdSelectAll () do
+	this.listCtrl.selection = this.folder.FileList.map(fn(entry)->entry.id)
+end
+
+function FolderUIClass.cmdShare (fileID:String) do
+
+	var fileInfo = this.folder.Files[fileID]
+
+	var resultACL = UIEditACL(fileInfo.acl, fileInfo.name)
+	if resultACL do
+		Data.setProperties(fileID, [ acl=resultACL ])
+	end
+end

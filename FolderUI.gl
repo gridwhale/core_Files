@@ -1,0 +1,313 @@
+
+class FolderUIClass [
+
+	constructor (folderID:String) end
+	def control -> this.listCtrl
+
+	function realize () end
+	function realizeList () end
+
+	function cmdAddFilesByID () end
+	function cmdAddToShelf (selection:array of String) end
+	function cmdCopyLink (selection:array of String) end
+	function cmdDelete (selection:array of String) end
+	function cmdDeselectAll () end
+	function cmdDetails (fileID:String) end
+	function cmdDownload (fileID:String) end
+	function cmdMoveToShelf (selection:array of String) end
+	function cmdOpen (fileID:String) end
+	function cmdOpenFolder (fileID:String) end
+	function cmdOpenImage (folderID:String, imageID:String) end
+	function cmdRemove (selection:array of String) end
+	function cmdRemoveSelected (selection:array of String) end
+	function cmdRename (fileID:String) end
+	function cmdRun (fileID:String) end
+	function cmdRunProgram (programID:String, paramID:String) end
+	function cmdSelectAll () end
+	function cmdShare (fileID:String) end
+
+	function cmdCreateFolder () end
+	function cmdCreateProgram () end
+	function cmdCreateNotebook () end
+	function cmdCreateWebSite () end
+
+	function cmdCreateCProgram (name:String) end
+	function cmdCreateGridLangProgram (name:String) end
+
+	function cmdDebugDlg (fileID:String) end
+
+	function execAction (fileID:String, action:ActionDescSchema) end
+	function getCommands () end
+	function getContextMenuLimbo (selection:array of String, openAction, runAction) end
+	function getContextMenuNormal (selection:array of String, openAction, runAction) end
+	function getSelection (fileID):array of String -> if this.listCtrl.selection.length > 0 -> this.listCtrl.selection else if fileID != "" -> [ fileID ]
+
+	function listCtrl.onclick (selection:String) -> this.cmdOpen(selection)
+	function listCtrl.oncontextmenu (fileID:String, x, y) end
+	function listCtrl.ondrop (data, sourceDesc, dest) end
+	function listCtrl.onfragmentchange (fragment:String) end
+
+	var curFolderID:String
+	var folder:GridFolderClass
+
+	var shelfDS
+	var limboDS
+
+	var listCtrl:ListboxControlType
+]
+
+function FolderUIClass.constructor (folderID:String) do
+
+	this.curFolderID = folderID
+
+	this.listCtrl = ListboxControlType([
+		appearance = [ background="white" ],
+		background = "white",
+		padding = "12px",
+		style = "palette",
+		align = "center top",
+		itemAspectRatio = 1,
+		itemSize = "224px",
+		colSpacing = "4px",
+		rowSpacing = "4px",
+		selectionMode = "multiCheck",
+	])
+
+	this.shelfDS = Data.open("~/shelf")
+	this.limboDS = Data.open("~/limbo")
+
+	this.realize()
+end
+
+function FolderUIClass.listCtrl.oncontextmenu (fileID:String, x, y) do
+
+	var selection = this.getSelection(fileID)
+
+	var fileInfo = this.folder.Files[selection[0]]
+	var actions = ActionListClass(fileInfo.actions, fileInfo.acl)
+
+	var openAction = actions.findAction(ActionVerb.open)
+	var runAction = actions.findAction(ActionVerb.run)
+
+	var menuCtrl = UI.create("menu", [
+		content=
+			if this.folder.Purpose == "limbo" -> this.getContextMenuLimbo(selection, openAction, runAction)
+			else -> this.getContextMenuNormal(selection, openAction, runAction)
+	])
+
+	this.listCtrl.showMenu(menuCtrl, x, y)
+end
+
+function FolderUIClass.listCtrl.ondrop (data, sourceDesc, dest) do
+
+	//	If the source is this folder, then nothing to do.
+
+	if sourceDesc.locationID == this.folder.ID do
+
+	//	If the source is the Shelf, then add the file.
+
+	else if sourceDesc.locationID == this.shelfDS.datasetID do
+		
+		var items = data["application/x-griditemlist"]
+		for itemID in items do
+			this.folder.folderDS.append(itemID)
+
+			//	Remove from Limbo, since we're adding it.
+
+			this.limboDS.removeAt(itemID)
+		end
+
+	else do
+	end
+end
+
+function FolderUIClass.listCtrl.onfragmentchange (fragment:String) do
+	if !fragment do
+		fragment = "~/home"
+	end
+
+	var folderInfo = Data.getInfo(fragment)
+	if folderInfo.type == "error" do
+		return false
+	end
+
+	if folderInfo.type != "folder" do
+		return false
+	end
+
+	this.curFolderID = fragment
+	this.realize()
+end
+
+function FolderUIClass.realize () do
+
+	this.folder = GridFolderClass(this.curFolderID)
+	this.folder.onchange = fn () -> this.realizeList()
+
+	this.listCtrl.dragSource = [
+		locationID=this.folder.ID,
+	]
+
+	this.listCtrl.dropTarget = [
+		dataTypes="*",
+		fileTypes="*",
+		uploadLocation=this.folder.ID,
+	]
+
+	this.listCtrl.selection = null
+
+	this.realizeList()
+
+	UI.setCommands(this.getCommands())
+	UI.setFragment(this.folder.ID)
+	UI.setProgramTitle(this.folder.Name)
+end
+
+function FolderUIClass.realizeList () do
+	this.listCtrl.data = this.folder.FileList
+end
+
+function FolderUIClass.execAction (fileID:String, action:ActionDescSchema) do
+
+	if action.exec == ActionImpl.run do
+		this.cmdRunProgram(fileID, "")
+	else if action.exec == ActionImpl.openFiles do
+		this.cmdOpenFolder(fileID)
+	else if action.exec == ActionImpl.openIDE do
+		this.cmdRunProgram("/Archive/Programs/IDE", fileID)
+	else if action.exec == ActionImpl.runProgram do
+		this.cmdRunProgram(action.param, fileID)
+	end
+end
+
+function FolderUIClass.getCommands () do
+
+	//	If we can modify the folder...
+
+	if this.folder.canCreateNewFiles() do
+
+		//	Create menu
+
+		var createCtrl = MenuControlType([
+			label="Create",
+			content=[
+				[	label="Program",	fn onaction () -> this.cmdCreateProgram() ],
+				[	label="Notebook",	fn onaction () -> this.cmdCreateNotebook() ],
+				[	label="Web Site",	fn onaction () -> this.cmdCreateWebSite() ],
+				[	line="true" ],
+				[	label="Folder",		fn onaction () -> this.cmdCreateFolder() ],
+			]
+		])
+
+		//	Make a list of parent folders.
+
+		var parents = Data.getProperties(this.curFolderID).folders
+		var upMenu = parents.map(fn(entry)->[
+			label="Up to " + entry.name,
+			fn onaction () -> this.cmdOpenFolder(entry.id)
+		])
+
+		//	Folder menu
+
+		var folderCtrl = MenuControlType([
+			label="Folder",
+			content=upMenu &
+			[
+				[	label="Add Files...",	fn onaction () -> this.cmdAddFilesByID() ],
+				[	line="true" ],
+				[	label="Details",		fn onaction () -> this.cmdDetails(this.curFolderID) ],
+				[	label="Share",			fn onaction () -> this.cmdShare(this.curFolderID) ],
+				[	line="true" ],
+				[	label="Download",		fn onaction () -> this.cmdDownload(this.curFolderID) ],
+				[	label="Add to Shelf",	fn onaction () -> this.cmdAddToShelf([ this.curFolderID ])	],
+				[	label="Copy Link",		fn onaction () -> this.cmdCopyLink([ this.curFolderID ]) ],
+			]
+		])
+
+		return [
+			createCtrl,
+			folderCtrl,
+			[	keyBinding="Ctrl+A",	fn onaction () -> this.cmdSelectAll() ],
+			[	keyBinding="Ctrl+D",	fn onaction () -> this.cmdDeselectAll() ],
+		]
+
+	//	Otherwise, read-only.
+
+	else do
+
+		return [
+			[	keyBinding="Ctrl+A",	fn onaction () -> this.cmdSelectAll() ],
+			[	keyBinding="Ctrl+D",	fn onaction () -> this.cmdDeselectAll() ],
+		]
+	end
+end
+
+function FolderUIClass.getContextMenuLimbo (selection:array of String, openAction, runAction) do
+	return [
+		//	Action menus (Open, Run, etc.)
+
+		[	label="Move to Shelf",	fn onaction () -> this.cmdMoveToShelf(selection)		],
+		[	line=true 																	],
+
+		//	Commands
+		---------------------------------------------------------------------------------
+
+		if selection.length == 1 ->
+			[	label="Details",		fn onaction () -> this.cmdDetails(selection[0])		],
+
+		if selection.length == 1 ->
+			[	label="Download",		fn onaction () -> this.cmdDownload(selection[0])	],
+
+		if selection.length == 1 ->
+			[	line=true 																	],
+
+		//	Move/Delete
+		---------------------------------------------------------------------------------
+		[	label="Delete Permanently",	fn onaction () -> this.cmdDelete(selection)		],
+	]
+end
+
+function FolderUIClass.getContextMenuNormal (selection:array of String, openAction, runAction) do
+	return [
+		//	Action menus (Open, Run, etc.)
+
+		if openAction.exec != ActionImpl.nothing && selection.length == 1 ->
+			[	label=String(openAction.verb),	fn onaction () -> this.cmdOpen(selection[0]) 		],
+		if runAction.exec != ActionImpl.nothing 
+				&& openAction.verb != ActionVerb.run
+				&& selection.length == 1 ->
+			[	label="Run",		fn onaction () -> this.cmdRun(selection[0])			],
+
+		if selection.length == 1 ->
+			[	line=true,																	],
+
+		//	Commands
+		---------------------------------------------------------------------------------
+
+		if selection.length == 1 ->
+			[	label="Details",		fn onaction () -> this.cmdDetails(selection[0])		],
+
+		if selection.length == 1 ->
+			[	label="Rename",			fn onaction () -> this.cmdRename(selection[0])		],
+
+		if selection.length == 1 ->
+			[	label="Share",			fn onaction () -> this.cmdShare(selection[0])		],
+
+		if selection.length == 1 ->
+			[	line=true 																	],
+
+		//	Move/Delete
+		---------------------------------------------------------------------------------
+		[	label="Download",		fn onaction () -> this.cmdDownload(selection[0])	],
+		[	label="Add to Shelf",	fn onaction () -> this.cmdAddToShelf(selection)		],
+		[	label="Copy Link",		fn onaction () -> this.cmdCopyLink(selection)		],
+		[	label="Remove",			fn onaction () -> this.cmdRemoveSelected(selection)		],
+
+		//	Debug
+		---------------------------------------------------------------------------------
+		if System.username.id == "george moromisato" ->	
+			[	line=true,																],
+		if System.username.id == "george moromisato" -> 
+			[	label="Debug",			fn onaction () -> this.cmdDebugDlg(selection[0])],
+	]
+end

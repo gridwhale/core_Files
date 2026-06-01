@@ -1,0 +1,81 @@
+class NavigatorUIClass [
+
+	constructor (folderUI:FolderUIClass) end
+	def control -> this.formCtrl
+
+	function locationsCtrl.onnavigate (selection:String) end
+
+	var folderUI:FolderUIClass
+
+	var formCtrl
+	var startCtrl:StartUIClass
+	var locationsCtrl:FolderListUIClass
+	var shelfCtrl:ShelfUIClass
+]
+
+function NavigatorUIClass.constructor (folderUI:FolderUIClass) do
+
+	def FORM_BACKGROUND = "Neutral_60"
+	
+	def LABEL_COLOR = "Neutral_20"
+	def LABEL_BACKGROUND = "Neutral_60"
+	def LABEL_PADDING = "2px 8px"
+
+	this.folderUI = folderUI
+
+	var rootDS = Data.open("~/")
+	var locations = rootDS.getValue().filter(fn(entry)->
+		entry.id.endsWith("HOME.dir")
+		|| entry.id.endsWith("IMAGES.dir")
+		|| entry.id.endsWith("LIB.dir")
+//		|| entry.id.endsWith("FONTS.dir")
+		|| entry.id.endsWith("LIMBO.dir")
+	)
+
+	locations = locations.copy()
+
+	var astudio = rootDS.getValue().filter(fn(entry)->entry.id.endsWith("ASTUDIO.dir"))[0]
+	if astudio do
+		locations.append(astudio)
+	end
+
+	locations.append([
+		id="/archive/programs",
+		name="Grid Store",
+		icon="/archive/icons/Grid Store Icon",
+		owner="overlord\Overlord",
+		type="application/x-gridFolder",
+		acl=GridACLType([ public="view", owner="overlord\Overlord" ])
+	])
+
+	locations.append([
+		id="/archive",
+		name="Archive",
+		icon="/archive/icons/Archive Icon",
+		owner="overlord\Overlord",
+		type="application/x-gridFolder",
+		acl=GridACLType([ public="view", owner="overlord\Overlord" ])
+	])
+
+	this.startCtrl = StartUIClass(this.folderUI)
+	this.locationsCtrl = FolderListUIClass(locations)
+	this.shelfCtrl = ShelfUIClass()
+
+	this.formCtrl = UI.create("form", [
+		background=FORM_BACKGROUND,
+		border="narrow",
+
+		content=[
+			[	control=UI.create("text", [ data="Start", background=LABEL_BACKGROUND, color=LABEL_COLOR, padding=LABEL_PADDING ])	],
+			[	control=this.startCtrl.control ],
+			[	control=UI.create("text", [ data="Locations", background=LABEL_BACKGROUND, color=LABEL_COLOR, padding=LABEL_PADDING ])  ],
+			[	control=this.locationsCtrl.control ],
+			[	control=UI.create("text", [ data="Shelf", background=LABEL_BACKGROUND, color=LABEL_COLOR, padding=LABEL_PADDING ])	],
+			[	control=this.shelfCtrl.control, height="330px" ],
+		]
+	])
+end
+
+function NavigatorUIClass.locationsCtrl.onnavigate (selection:String) do
+	this.folderUI.cmdOpenFolder(selection)
+end

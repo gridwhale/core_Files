@@ -1,0 +1,23 @@
+using Data
+using Code
+using UI
+using User
+using UIACLEditor
+using UIImageSelector
+
+var folderUI = FolderUIClass("~/home")
+var navigatorUI = NavigatorUIClass(folderUI)
+
+var layoutCtrl = UI.create("layoutGrid", [
+	rows=1,
+	cols=2,
+	colWidth=["340px", "auto"]
+
+	content=[
+		[	col=0,	row=0,	control=navigatorUI.control	],
+		[	col=1,	row=0,	control=folderUI.control	],
+	]
+])
+
+UI.show(layoutCtrl)
+UI.run()

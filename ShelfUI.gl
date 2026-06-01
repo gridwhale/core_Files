@@ -1,0 +1,105 @@
+class ShelfUIClass [
+
+	constructor () end
+	def control -> this.listCtrl
+
+	function cmdRemove (fileID) end
+
+	function realizeList () end
+
+	function shelfDS.onchange () -> this.realizeList()
+	function listCtrl.ondrop (data, sourceDesc, dest) end
+	function listCtrl.oncontextmenu (selection:String) end
+
+	var shelfDS
+	var limboDS
+	var listCtrl
+]
+
+function ShelfUIClass.constructor () do
+
+	this.shelfDS = Data.open("~/shelf")
+	this.limboDS = Data.open("~/limbo")
+
+	this.listCtrl = UI.create("listbox", [
+		style="palette",
+		selectionMode="none",
+		align="center top",
+		itemSize="84px",
+		padding="4px",
+		itemTextStyle="layered",
+		height="min:200px; max:320px",
+
+		background="Neutral_50"
+
+		dropTarget=[
+			dataTypes="*",
+			fileTypes="*",
+			uploadLocation=this.shelfDS.datasetID
+		]
+
+		dragSource=[
+			locationID=this.shelfDS.datasetID
+		]
+	])
+
+	this.realizeList()
+end
+
+function ShelfUIClass.cmdRemove (fileID) do
+
+	//	Figure out which folders this file is currently in. If we're only in one
+	//	folder, then we move to Limbo.
+
+	var folderList = Data.getProperties(fileID).folders
+	var moveToLimbo = folderList.length == 1
+
+	//	Remove from Shelf
+
+	this.shelfDS.removeAt(fileID)
+
+	//	Move to Limbo, if necessary
+
+	if moveToLimbo do
+		this.limboDS.append(fileID)
+	end
+end
+
+function ShelfUIClass.realizeList () do
+
+	this.listCtrl.data = this.shelfDS.getValue().map(fn(entry)->[
+		id=entry.id,
+		name=entry.name,
+		icon=entry.icon
+	])
+
+	//	BUG: We need this here because setting the data resets
+	//	itemTextStyle.
+	this.listCtrl.itemTextStyle = "layered"
+end
+
+function ShelfUIClass.listCtrl.ondrop (data, sourceDesc, dest) do
+	if sourceDesc.locationID == this.shelfDS.datasetID do
+		//	Nothing to do.
+	else if data["application/x-griditemlist"] do
+		//	Add items that we dragged to the Shelf.
+		var items = data["application/x-griditemlist"]
+		for itemID in items do
+			this.shelfDS.append(itemID)
+		end
+	else do
+	end
+end
+
+function ShelfUIClass.listCtrl.oncontextmenu (selection:String) do
+
+	var fileInfo = this.shelfDS.getValue()[selection]
+
+	var menuCtrl = UI.create("menu", [
+		content=[
+			[	label="Remove",			fn onaction () -> this.cmdRemove(selection)		],
+		]
+	])
+
+	this.listCtrl.showMenu(menuCtrl, selection)
+end

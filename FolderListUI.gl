@@ -1,0 +1,50 @@
+class FolderListUIClass [
+
+	constructor (files:table of GridFolderSchema) end
+	def control -> this.listCtrl
+
+	function realizeList () end
+
+	function listCtrl.onclick (selection) end
+
+	var files:table of GridFolderSchema
+	var listCtrl
+	var onnavigate
+]
+
+function FolderListUIClass.constructor (files:table of GridFolderSchema) do
+	this.files = files
+
+	this.listCtrl = UI.create("listbox", [
+		style="palette",
+		selectionMode="none",
+		align="center top",
+		itemSize="84px",
+		padding="4px",
+		itemTextStyle="layered",
+		height="min:200px; max:320px",
+
+		background="Neutral_50"
+	])
+
+	this.realizeList()
+end
+
+function FolderListUIClass.realizeList () do
+
+	this.listCtrl.data = this.files.map(fn(entry)->[
+		id=entry.id,
+		name=entry.name,
+		icon=entry.icon
+	])
+
+	//	BUG: We need this here because setting the data resets
+	//	itemTextStyle.
+	this.listCtrl.itemTextStyle = "layered"
+end
+
+function FolderListUIClass.listCtrl.onclick (selection) do
+	if this.onnavigate do
+		this.onnavigate(selection)
+	end
+end
