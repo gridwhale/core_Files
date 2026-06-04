@@ -74,16 +74,14 @@ function ActionListClass.parseVerb (desc):ActionVerb ->
 	else
 		-> error("Unknown action ID: " + desc.id)
 
-function ActionListClass.parseAction (desc):ActionImpl do
+function ActionListClass.parseAction (desc):ActionImpl ->
 	if desc.action == "openFiles"					-> ActionImpl.openFiles
 	else if desc.action == "openIDE"				-> ActionImpl.openIDE
 	else if desc.action == "run"					-> ActionImpl.run
 	else if desc.action.startsWith("runProgram")	-> ActionImpl.runProgram
 	else
 		-> error("Unknown action impl: " + desc.action)
-end
 
-function ActionListClass.parseParam (desc):String do
+function ActionListClass.parseParam (desc):String ->
 	if desc.action.startsWith("runProgram")			-> desc.action.split("=")[1]
 	else -> ""
-end
